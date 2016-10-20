@@ -10,6 +10,11 @@ use Doctrine\Common\Cache\FilesystemCache;
 use GetOptionKit\OptionParser;
 use GetOptionKit\OptionCollection;
 
+use phpDocumentor\Reflection\DocBlockFactory;
+
+use phpDocumentor\Reflection\DocBlock\StandardTagFactory;
+use phpDocumentor\Reflection\DocBlock\DescriptionFactory;
+
 use PhpIntegrator\Analysis\VariableScanner;
 use PhpIntegrator\Analysis\DocblockAnalyzer;
 use PhpIntegrator\Analysis\ClasslikeInfoBuilder;
@@ -23,6 +28,9 @@ use PhpIntegrator\Analysis\Conversion\PropertyConverter;
 use PhpIntegrator\Analysis\Conversion\FunctionConverter;
 use PhpIntegrator\Analysis\Conversion\ClasslikeConverter;
 use PhpIntegrator\Analysis\Conversion\ClasslikeConstantConverter;
+
+use PhpIntegrator\Analysis\Docblock\StandardTagFactoryFactory;
+use PhpIntegrator\Analysis\Docblock\DummyDocblockFqsenResolver;
 
 use PhpIntegrator\Analysis\Relations\TraitUsageResolver;
 use PhpIntegrator\Analysis\Relations\InheritanceResolver;
@@ -242,6 +250,42 @@ class Application
             ->register('docblockAnalyzer', DocblockAnalyzer::class);
 
         $container
+            ->register('standardTagFactoryFactory', StandardTagFactoryFactory::class);
+
+        $container
+            ->register('docblockFactory.dummyFqsenResolver', DummyDocblockFqsenResolver::class);
+
+        $container
+            ->setAlias('docblockFactory.fqsenResolver', 'docblockFactory.dummyFqsenResolver');
+
+        $container
+            ->register('docblockFactory.typeResolver', \phpDocumentor\Reflection\TypeResolver::class)
+            ->setArguments([new Reference('docblockFactory.fqsenResolver')]);
+
+        // StandardTagFactoryFactory
+
+        $container
+            ->register('docblockFactory.tagFactory', StandardTagFactory::class)
+            ->setFactory([new Reference('standardTagFactoryFactory'), 'create'])
+            ->addArgument(new Reference('docblockFactory.fqsenResolver'))
+            ->addArgument(new Reference('docblockFactory.typeResolver'))
+            // ->setArguments([new Reference('docblockFactory.fqsenResolver')])
+            // ->addMethodCall('addService', [new Reference('docblockFactory.descriptionFactory')])
+            // ->addMethodCall('addService', [new Reference('docblockFactory.typeResolver')])
+            ;
+
+        $container
+            ->register('docblockFactory.descriptionFactory', DescriptionFactory::class)
+            ->setArguments([new Reference('docblockFactory.tagFactory')]);
+
+        $container
+            ->register('docblockFactory', DocBlockFactory::class)
+            ->setArguments([
+                new Reference('docblockFactory.descriptionFactory'),
+                new Reference('docblockFactory.tagFactory')
+            ]);
+
+        $container
             ->register('constantConverter', ConstantConverter::class);
 
         $container
@@ -373,6 +417,7 @@ class Application
                 new Reference('storageForIndexers'),
                 new Reference('typeAnalyzer'),
                 new Reference('typeResolver'),
+                new Reference('docblockFactory'),
                 new Reference('docblockParser'),
                 new Reference('typeDeducer'),
                 new Reference('parser')

@@ -6,11 +6,16 @@ use DateTime;
 use Exception;
 use UnexpectedValueException;
 
+use phpDocumentor\Reflection\DocBlockFactoryInterface;
+
+use phpDocumentor\Reflection\Types\Context;
+
 use PhpIntegrator\Analysis\Typing\TypeDeducer;
 use PhpIntegrator\Analysis\Typing\TypeAnalyzer;
 use PhpIntegrator\Analysis\Typing\TypeResolver;
 use PhpIntegrator\Analysis\Typing\FileTypeResolver;
 
+use PhpIntegrator\Analysis\Visiting\UseStatementKind;
 use PhpIntegrator\Analysis\Visiting\OutlineFetchingVisitor;
 use PhpIntegrator\Analysis\Visiting\UseStatementFetchingVisitor;
 
@@ -43,6 +48,11 @@ class FileIndexer
     protected $storage;
 
     /**
+     * @var DocBlockFactoryInterface
+     */
+    protected $docBlockFactory;
+
+    /**
      * @var DocblockParser
      */
     protected $docblockParser;
@@ -73,17 +83,19 @@ class FileIndexer
     protected $structureTypeMap;
 
     /**
-     * @param StorageInterface $storage
-     * @param TypeAnalyzer     $typeAnalyzer
-     * @param TypeResolver     $typeResolver
-     * @param DocblockParser   $docblockParser
-     * @param TypeDeducer      $typeDeducer
-     * @param Parser           $parser
+     * @param StorageInterface         $storage
+     * @param TypeAnalyzer             $typeAnalyzer
+     * @param TypeResolver             $typeResolver
+     * @param DocBlockFactoryInterface $docBlockFactory
+     * @param DocblockParser           $docblockParser
+     * @param TypeDeducer              $typeDeducer
+     * @param Parser                   $parser
      */
     public function __construct(
         StorageInterface $storage,
         TypeAnalyzer $typeAnalyzer,
         TypeResolver $typeResolver,
+        DocBlockFactoryInterface $docBlockFactory,
         DocblockParser $docblockParser,
         TypeDeducer $typeDeducer,
         Parser $parser
@@ -91,6 +103,7 @@ class FileIndexer
         $this->storage = $storage;
         $this->typeAnalyzer = $typeAnalyzer;
         $this->typeResolver = $typeResolver;
+        $this->docBlockFactory = $docBlockFactory;
         $this->docblockParser = $docblockParser;
         $this->typeDeducer = $typeDeducer;
         $this->parser = $parser;
@@ -654,6 +667,7 @@ class FileIndexer
         $isMagic = false,
         FileTypeResolver $fileTypeResolver
     ) {
+        // TODO: Remove
         $documentation = $this->docblockParser->parse($rawData['docComment'], [
             DocblockParser::THROWS,
             DocblockParser::PARAM_TYPE,
@@ -662,11 +676,20 @@ class FileIndexer
             DocblockParser::RETURN_VALUE
         ], $rawData['name']);
 
+        $docBlock = null;
+
+        if ($rawData['docComment']) {
+            $docBlock = $this->docBlockFactory->create($rawData['docComment']);
+        }
+
         $returnTypes = [];
 
-        if ($documentation && $documentation['return']['type']) {
+        if ($docBlock && $docBlock->hasTag('return')) {
+            $returnTags = $docBlock->getTagsByName('return');
+            $returnTag = array_pop($returnTags);
+
             $returnTypes = $this->getTypeDataForTypeSpecification(
-                $documentation['return']['type'],
+                $returnTag->getType(),
                 $rawData['startLine'],
                 $fileTypeResolver
             );
@@ -679,35 +702,47 @@ class FileIndexer
             ];
         }
 
-        $shortDescription = $documentation['descriptions']['short'];
-
         $throws = [];
 
-        foreach ($documentation['throws'] as $type => $description) {
-            $typeData = $this->getTypeDataForTypeSpecification($type, $rawData['startLine'], $fileTypeResolver);
-            $typeData = array_shift($typeData);
+        if ($docBlock && $docBlock->hasTag('throws')) {
+            foreach ($docBlock->getTagsByName('throws') as $throwsTag) {
+                $typeData = $this->getTypeDataForTypeSpecification(
+                    $throwsTag->getType(),
+                    $rawData['startLine'],
+                    $fileTypeResolver
+                );
 
-            $throwsData = [
-                'type'        => $typeData['type'],
-                'full_type'   => $typeData['fqcn'],
-                'description' => $description ?: null
-            ];
+                $typeData = array_shift($typeData);
 
-            $throws[] = $throwsData;
+                $throwsData = [
+                    'type'        => $typeData['type'],
+                    'full_type'   => $typeData['fqcn'],
+                    'description' => $throwsTag->getDescription()->render()
+                ];
+
+                $throws[] = $throwsData;
+            }
         }
 
         $parameters = [];
 
+        $docBlockParameters = $docBlock ? $docBlock->getTagsByName("param") : [];
+
         foreach ($rawData['parameters'] as $parameter) {
-            $parameterKey = '$' . $parameter['name'];
-            $parameterDoc = isset($documentation['params'][$parameterKey]) ?
-                $documentation['params'][$parameterKey] : null;
+            $parameterDoc = null;
+
+            foreach ($docBlockParameters as $docBlockParameter) {
+                if ($docBlockParameter->getVariableName() === $parameter['name']) {
+                    $parameterDoc = $docBlockParameter;
+                    break;
+                }
+            }
 
             $types = [];
 
             if ($parameterDoc) {
                 $types = $this->getTypeDataForTypeSpecification(
-                    $parameterDoc['type'],
+                    $parameterDoc->getType(),
                     $rawData['startLine'],
                     $fileTypeResolver
                 );
@@ -731,7 +766,7 @@ class FileIndexer
                 'name'             => $parameter['name'],
                 'type_hint'        => $parameter['type'],
                 'types_serialized' => serialize($types),
-                'description'      => $parameterDoc ? $parameterDoc['description'] : null,
+                'description'      => $parameterDoc ? $parameterDoc->getDescription() : null,
                 'default_value'    => $parameter['defaultValue'],
                 'is_nullable'      => $parameter['isNullable'] ? 1 : 0,
                 'is_reference'     => $parameter['isReference'] ? 1 : 0,
@@ -750,7 +785,7 @@ class FileIndexer
             'is_abstract'             => (isset($rawData['isAbstract']) && $rawData['isAbstract']) ? 1 : 0,
             'is_final'                => (isset($rawData['isFinal']) && $rawData['isFinal']) ? 1 : 0,
             'is_deprecated'           => $documentation['deprecated'] ? 1 : 0,
-            'short_description'       => $shortDescription,
+            'short_description'       => $docBlock ? $docBlock->getSummary() : null,
             'long_description'        => $documentation['descriptions']['long'],
             'return_description'      => $documentation['return']['description'],
             'return_type_hint'        => $rawData['returnType'],
