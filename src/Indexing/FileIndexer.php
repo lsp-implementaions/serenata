@@ -747,10 +747,18 @@ class FileIndexer
                     $fileTypeResolver
                 );
             } elseif (isset($parameter['type'])) {
+                $parameterType = $parameter['type'];
+                $parameterFullType = isset($parameter['fullType']) ? $parameter['fullType'] : $parameterType;
+
+                if ($parameter['isVariadic']) {
+                    $parameterType .= '[]';
+                    $parameterFullType .= '[]';
+                }
+
                 $types = [
                     [
-                        'type' => $parameter['type'],
-                        'fqcn' => isset($parameter['fullType']) ? $parameter['fullType'] : $parameter['type']
+                        'type' => $parameterType,
+                        'fqcn' => $parameterFullType
                     ]
                 ];
 

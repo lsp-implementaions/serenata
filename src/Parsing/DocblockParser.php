@@ -15,22 +15,70 @@ class DocblockParser
      * @var string
      */
     const VAR_TYPE        = '@var';
+
+    /**
+     * @var string
+     */
     const PARAM_TYPE      = '@param';
+
+    /**
+     * @var string
+     */
     const THROWS          = '@throws';
+
+    /**
+     * @var string
+     */
     const RETURN_VALUE    = '@return';
+
+    /**
+     * @var string
+     */
     const DEPRECATED      = '@deprecated';
 
+    /**
+     * @var string
+     */
     const METHOD          = "@method";
 
+    /**
+     * @var string
+     */
     const PROPERTY        = '@property';
+
+    /**
+     * @var string
+     */
     const PROPERTY_READ   = '@property-read';
+
+    /**
+     * @var string
+     */
     const PROPERTY_WRITE  = '@property-write';
 
+    /**
+     * @var string
+     */
     const CATEGORY        = '@category';
+
+    /**
+     * @var string
+     */
     const SUBPACKAGE      = '@subpackage';
+
+    /**
+     * @var string
+     */
     const LINK            = '@link';
 
+    /**
+     * @var string
+     */
     const DESCRIPTION     = 'description';
+
+    /**
+     * @var string
+     */
     const INHERITDOC      = '{@inheritDoc}';
 
     /**
@@ -40,7 +88,14 @@ class DocblockParser
      */
     const ANNOTATION      = '@Annotation';
 
+    /**
+     * @var string
+     */
     const TYPE_SPLITTER   = '|';
+
+    /**
+     * @var string
+     */
     const TAG_START_REGEX = '/^\s*(?:\/\*)?\*\s+(\@.+)(?:\*\/)?$/';
 
     /**
@@ -71,7 +126,12 @@ class DocblockParser
         $docblock = is_string($docblock) ? $docblock : null;
 
         if ($docblock) {
-            preg_match_all('/\*\s+(@[a-zA-Z-][a-z-]*)(?:\s+([.\n]*))/', $docblock, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+            // Strip off the start and en of the docblock.
+            $docblock = trim($docblock);
+            $docblock = mb_substr($docblock, 2);
+            $docblock = mb_substr($docblock, 0, -2);
+
+            preg_match_all('/\*\s+(@[a-zA-Z0-9-\\\\]+(?:\(.*\))?)(?:\s+([.\n]*))/', $docblock, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
 
             $segments = [];
             $previousStart = 0;
@@ -115,7 +175,7 @@ class DocblockParser
                 $tagValue = $this->normalizeNewlines($tagValue);
 
                 // Remove the delimiters of the docblock itself at the start of each line, if any.
-                $tagValue = preg_replace('/\n\s+\*\/?\s*/', ' ', $tagValue);
+                $tagValue = preg_replace('/\n\s+\*\s*/', ' ', $tagValue);
 
                 // Collapse multiple spaces, just like HTML does.
                 $tagValue = preg_replace('/\s\s+/', ' ', $tagValue);

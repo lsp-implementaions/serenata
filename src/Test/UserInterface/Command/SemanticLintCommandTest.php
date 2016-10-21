@@ -396,6 +396,13 @@ class SemanticLintCommandTest extends IndexedTest
         ], $output['warnings']['unusedUseStatements']);
     }
 
+    public function testSeesUseStatementsAsUsedIfTheyAppearInAnonymousClasses()
+    {
+        $output = $this->lintFile('UnusedUseStatementsAnonymousClass.phpt');
+
+        $this->assertEquals([], $output['warnings']['unusedUseStatements']);
+    }
+
     public function testCorrectlyIdentifiesMissingDocumentation()
     {
         $output = $this->lintFile('DocblockCorrectnessMissingDocumentation.phpt');
@@ -492,6 +499,15 @@ class SemanticLintCommandTest extends IndexedTest
                 'end'       => 342,
                 'parameter' => '$param1'
             ],
+        ], $output['warnings']['docblockIssues']['parameterTypeMismatch']);
+    }
+
+    public function testCorrectlyInterpretsVariadicParametersWhenCheckingForParameterTypeMismatches()
+    {
+        $output = $this->lintFile('DocblockCorrectnessVariadicParam.phpt');
+
+        $this->assertEquals([
+
         ], $output['warnings']['docblockIssues']['parameterTypeMismatch']);
     }
 

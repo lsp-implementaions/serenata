@@ -371,7 +371,13 @@ class DocblockCorrectnessAnalyzer implements AnalyzerInterface
             } elseif ($parameter['type']) {
                 $docblockType = $docblockParameters[$dollarName]['type'];
 
-                if (!$this->typeAnalyzer->isTypeConformantWithDocblockType($parameter['type'], $docblockType)) {
+                $parameterType = $parameter['type'];
+
+                if ($parameter['isVariadic']) {
+                    $parameterType .= '[]';
+                }
+
+                if (!$this->typeAnalyzer->isTypeConformantWithDocblockType($parameterType, $docblockType)) {
                     $docblockIssues['parameterTypeMismatch'][] = [
                         'name'      => $function['name'],
                         'parameter' => $dollarName,

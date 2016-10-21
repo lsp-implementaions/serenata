@@ -34,7 +34,7 @@ class ClassUsageFetchingVisitor extends NodeVisitorAbstract
     protected $lastNamespace = null;
 
     /**
-     * Constructor.
+     * @param TypeAnalyzer $typeAnalyzer
      */
     public function __construct(TypeAnalyzer $typeAnalyzer)
     {
@@ -57,27 +57,45 @@ class ClassUsageFetchingVisitor extends NodeVisitorAbstract
         }
 
         if ($node instanceof Node\Name) {
-            if (!$this->lastNode instanceof Node\Expr\FuncCall &&
-                !$this->lastNode instanceof Node\Expr\ConstFetch &&
-                !$this->lastNode instanceof Node\Stmt\Namespace_
-            ) {
-                $name = (string) $node;
+            $this->processName($node);
+        } elseif ($node instanceof Node\Stmt\Class_ && $node->name === null) {
+            // NOTE: Extends and implements for classlikes are automatically traversed, but this does not happen for
+            // anonymous classes, which is handled separately here.
+            if ($node->extends instanceof Node\Name) {
+                $this->processName($node->extends);
+            }
 
-                if ($this->isValidType($name)) {
-                    $this->classUsageList[] = [
-                        'name'             => $name,
-                        'firstPart'        => $node->getFirst(),
-                        'isFullyQualified' => $node->isFullyQualified(),
-                        'namespace'        => $this->lastNamespace,
-                        'line'             => $node->getAttribute('startLine')    ? $node->getAttribute('startLine')      : null,
-                        'start'            => $node->getAttribute('startFilePos') ? $node->getAttribute('startFilePos')   : null,
-                        'end'              => $node->getAttribute('endFilePos')   ? $node->getAttribute('endFilePos') + 1 : null
-                    ];
-                }
+            foreach ($node->implements as $implements) {
+                $this->processName($implements);
             }
         }
 
         $this->lastNode = $node;
+    }
+
+    /**
+     * @param Node\Name $node
+     */
+    protected function processName(Node\Name $node)
+    {
+        if (!$this->lastNode instanceof Node\Expr\FuncCall &&
+            !$this->lastNode instanceof Node\Expr\ConstFetch &&
+            !$this->lastNode instanceof Node\Stmt\Namespace_
+        ) {
+            $name = (string) $node;
+
+            if ($this->isValidType($name)) {
+                $this->classUsageList[] = [
+                    'name'             => $name,
+                    'firstPart'        => $node->getFirst(),
+                    'isFullyQualified' => $node->isFullyQualified(),
+                    'namespace'        => $this->lastNamespace,
+                    'line'             => $node->getAttribute('startLine')    ? $node->getAttribute('startLine')      : null,
+                    'start'            => $node->getAttribute('startFilePos') ? $node->getAttribute('startFilePos')   : null,
+                    'end'              => $node->getAttribute('endFilePos')   ? $node->getAttribute('endFilePos') + 1 : null
+                ];
+            }
+        }
     }
 
     /**

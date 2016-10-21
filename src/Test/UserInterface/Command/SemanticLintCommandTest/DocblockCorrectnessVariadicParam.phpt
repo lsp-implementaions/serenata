@@ -3,9 +3,9 @@
 namespace A;
 
 /**
- * @param mixed ...$param1
+ * @param \stdClass[] ...$param1
  */
-function some_function_correct(...$param1)
+function some_function_correct(\stdClass ...$param1)
 {
 
 }

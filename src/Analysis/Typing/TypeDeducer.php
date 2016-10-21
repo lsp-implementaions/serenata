@@ -445,7 +445,13 @@ class TypeDeducer
                     }
 
                     if ($param->type instanceof Node\Name) {
-                        return [NodeHelpers::fetchClassName($param->type)];
+                        $typeHintType = NodeHelpers::fetchClassName($param->type);
+
+                        if ($param->variadic) {
+                            $typeHintType .= '[]';
+                        }
+
+                        return [$typeHintType];
                     }
 
                     return $param->type ? [$param->type] : [];
@@ -575,12 +581,22 @@ class TypeDeducer
         $resolvedTypes = [];
 
         foreach ($types as $type) {
+            $isArraySyntaxTypeHint = $this->typeAnalyzer->isArraySyntaxTypeHint($type);
+
+            if ($isArraySyntaxTypeHint) {
+                $type = mb_substr($type, 0, -2);
+            }
+
             if ($this->typeAnalyzer->isClassType($type)) {
                 $typeLine = isset($variableTypeInfo['bestTypeOverrideMatchLine']) ?
                     $variableTypeInfo['bestTypeOverrideMatchLine'] :
                     $line;
 
                 $type = $this->getTypeResolverForFile($file)->resolve($type, $typeLine);
+            }
+
+            if ($isArraySyntaxTypeHint) {
+                $type .= '[]';
             }
 
             $resolvedTypes[] = $type;

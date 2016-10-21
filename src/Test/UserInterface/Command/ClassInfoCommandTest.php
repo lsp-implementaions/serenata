@@ -1235,6 +1235,19 @@ class ClassInfoCommandTest extends IndexedTest
     /**
      *
      */
+    public function testMethodParameterTypeIsCorrectlyDeducedIfParameterIsVariadic()
+    {
+        $fileName = 'MethodVariadicParameter.phpt';
+
+        $output = $this->getClassInfo($fileName, 'A\TestClass');
+        $parameters = $output['methods']['testMethod']['parameters'];
+
+        $this->assertEquals('\stdClass[]', $parameters[0]['types'][0]['type']);
+    }
+
+    /**
+     *
+     */
     public function testMagicClassPropertiesArePickedUpCorrectly()
     {
         $fileName = 'MagicClassProperties.phpt';

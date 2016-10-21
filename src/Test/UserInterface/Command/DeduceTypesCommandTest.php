@@ -346,6 +346,13 @@ class DeduceTypesCommandTest extends IndexedTest
         $this->assertEquals(['\B'], $output);
     }
 
+    public function testVariadicTypesForParametersAreCorrectlyAnalyzed()
+    {
+        $output = $this->deduceTypes('FunctionVariadicParameter.phpt', ['$b']);
+
+        $this->assertEquals(['\A\B[]'], $output);
+    }
+
     public function testSpecialTypesForParametersResolveCorrectly()
     {
         $output = $this->deduceTypes('FunctionParameterTypeHintSpecial.phpt', ['$a']);

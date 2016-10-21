@@ -124,7 +124,7 @@ class TypeAnalyzer implements TypeNormalizerInterface
     /**
      * @param string $type
      */
-    protected function isArraySyntaxTypeHint($type)
+    public function isArraySyntaxTypeHint($type)
     {
         return (preg_match('/^.+\[\]$/', $type) === 1);
     }
