@@ -1835,6 +1835,21 @@ class ClassInfoCommandTest extends IndexedTest
     /**
      *
      */
+    public function testDeprecatedElementsAreCorrectlyPickedUp()
+    {
+        $fileName = 'DeprecatedElements.phpt';
+
+        $output = $this->getClassInfo($fileName, 'A\TestClass');
+
+        $this->assertTrue($output['isDeprecated']);
+        $this->assertTrue($output['constants']['TEST_CONSTANT']['isDeprecated']);
+        $this->assertTrue($output['properties']['testProperty']['isDeprecated']);
+        $this->assertTrue($output['methods']['testMethod']['isDeprecated']);
+    }
+
+    /**
+     *
+     */
     public function testCorrectlyAnalyzesBuiltinItems()
     {
         $output = $this->getBuiltinClassInfo('\IteratorAggregate');
