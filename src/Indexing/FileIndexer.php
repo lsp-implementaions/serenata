@@ -6,13 +6,16 @@ use DateTime;
 use Exception;
 use UnexpectedValueException;
 
+use phpDocumentor\Reflection\DocBlock;
 use phpDocumentor\Reflection\DocBlockFactoryInterface;
+
+use phpDocumentor\Reflection\DocBlock\Tags\Formatter;
 
 use phpDocumentor\Reflection\Types\Context;
 
 use PhpIntegrator\Analysis\Typing\TypeDeducer;
-use PhpIntegrator\Analysis\Typing\TypeAnalyzer;
 use PhpIntegrator\Analysis\Typing\TypeResolver;
+use PhpIntegrator\Analysis\Typing\TypeAnalyzer;
 use PhpIntegrator\Analysis\Typing\FileTypeResolver;
 
 use PhpIntegrator\Analysis\Visiting\UseStatementKind;
@@ -53,6 +56,11 @@ class FileIndexer
     protected $docBlockFactory;
 
     /**
+     * @var Formatter
+     */
+    protected $docBlockDescriptionFormatter;
+
+    /**
      * @var DocblockParser
      */
     protected $docblockParser;
@@ -87,6 +95,7 @@ class FileIndexer
      * @param TypeAnalyzer             $typeAnalyzer
      * @param TypeResolver             $typeResolver
      * @param DocBlockFactoryInterface $docBlockFactory
+     * @param Formatter                $docBlockDescriptionFormatter
      * @param DocblockParser           $docblockParser
      * @param TypeDeducer              $typeDeducer
      * @param Parser                   $parser
@@ -96,6 +105,7 @@ class FileIndexer
         TypeAnalyzer $typeAnalyzer,
         TypeResolver $typeResolver,
         DocBlockFactoryInterface $docBlockFactory,
+        Formatter $docBlockDescriptionFormatter,
         DocblockParser $docblockParser,
         TypeDeducer $typeDeducer,
         Parser $parser
@@ -104,6 +114,7 @@ class FileIndexer
         $this->typeAnalyzer = $typeAnalyzer;
         $this->typeResolver = $typeResolver;
         $this->docBlockFactory = $docBlockFactory;
+        $this->docBlockDescriptionFormatter = $docBlockDescriptionFormatter;
         $this->docblockParser = $docblockParser;
         $this->typeDeducer = $typeDeducer;
         $this->parser = $parser;
@@ -247,15 +258,11 @@ class FileIndexer
     ) {
         $structureTypeMap = $this->getStructureTypeMap();
 
-        $documentation = $this->docblockParser->parse($rawData['docComment'], [
-            DocblockParser::DEPRECATED,
-            DocblockParser::ANNOTATION,
-            DocblockParser::DESCRIPTION,
-            DocblockParser::METHOD,
-            DocblockParser::PROPERTY,
-            DocblockParser::PROPERTY_READ,
-            DocblockParser::PROPERTY_WRITE
-        ], $rawData['name']);
+        $docBlock = null;
+
+        if ($rawData['docComment']) {
+            $docBlock = $this->docBlockFactory->create($rawData['docComment']);
+        }
 
         $seData = [
             'name'              => $rawData['name'],
@@ -266,12 +273,12 @@ class FileIndexer
             'structure_type_id' => $structureTypeMap[$rawData['type']],
             'is_abstract'       => (isset($rawData['isAbstract']) && $rawData['isAbstract']) ? 1 : 0,
             'is_final'          => (isset($rawData['isFinal']) && $rawData['isFinal']) ? 1 : 0,
-            'is_deprecated'     => $documentation['deprecated'] ? 1 : 0,
-            'is_annotation'     => $documentation['annotation'] ? 1 : 0,
+            'is_deprecated'     => $docBlock && $docBlock->hasTag('deprecated') ? 1 : 0,
+            'is_annotation'     => $docBlock && $docBlock->hasTag('Annotation') ? 1 : 0,
             'is_builtin'        => $isBuiltin ? 1 : 0,
             'has_docblock'      => empty($rawData['docComment']) ? 0 : 1,
-            'short_description' => $documentation['descriptions']['short'],
-            'long_description'  => $documentation['descriptions']['long']
+            'short_description' => $docBlock ? $docBlock->getSummary() : null,
+            'long_description'  => $docBlock ? $docBlock->getDescription()->render($this->docBlockDescriptionFormatter) : null
         ];
 
         $seId = $this->storage->insertStructure($seData);
@@ -365,17 +372,43 @@ class FileIndexer
             );
         }
 
-        // Index magic properties.
-        $magicProperties = array_merge(
-            $documentation['properties'],
-            $documentation['propertiesReadOnly'],
-            $documentation['propertiesWriteOnly']
-        );
+        // TODO: Remove.
+        $documentation = $this->docblockParser->parse($rawData['docComment'], [
+            DocblockParser::METHOD,
+            DocblockParser::PROPERTY,
+            DocblockParser::PROPERTY_READ,
+            DocblockParser::PROPERTY_WRITE
+        ], $rawData['name']);
+
+        $this->indexStructureMagicProperties($documentation['properties'], $seId, $fileId, $rawData['startLine'], $fileTypeResolver);
+        $this->indexStructureMagicProperties($documentation['propertiesReadOnly'], $seId, $fileId, $rawData['startLine'], $fileTypeResolver);
+        $this->indexStructureMagicProperties($documentation['propertiesWriteOnly'], $seId, $fileId, $rawData['startLine'], $fileTypeResolver);
+
+        $this->indexStructureMagicMethods($documentation['methods'], $seId, $fileId, $rawData['startLine'], $fileTypeResolver);
+
+        return $seId;
+    }
+
+    /**
+     * @param array            $magicProperties
+     * @param int              $seId
+     * @param int              $fileId
+     * @param int              $classStartLine
+     * @param FileTypeResolver $fileTypeResolver
+     */
+    protected function indexStructureMagicProperties(
+        array $magicProperties,
+        $seId,
+        $fileId,
+        $classStartLine,
+        FileTypeResolver $fileTypeResolver
+    ) {
+        $accessModifierMap = $this->getAccessModifierMap();
 
         foreach ($magicProperties as $propertyName => $propertyData) {
             // Use the same line as the class definition, it matters for e.g. type resolution.
             $propertyData['name'] = mb_substr($propertyName, 1);
-            $propertyData['startLine'] = $propertyData['endLine'] = $rawData['startLine'];
+            $propertyData['startLine'] = $propertyData['endLine'] = $classStartLine;
 
             $this->indexMagicProperty(
                 $propertyData,
@@ -385,12 +418,28 @@ class FileIndexer
                 $fileTypeResolver
             );
         }
+    }
 
-        // Index magic methods.
-        foreach ($documentation['methods'] as $methodName => $methodData) {
+    /**
+     * @param array            $magicProperties
+     * @param int              $seId
+     * @param int              $fileId
+     * @param int              $classStartLine
+     * @param FileTypeResolver $fileTypeResolver
+     */
+    protected function indexStructureMagicMethods(
+        array $magicMethods,
+        $seId,
+        $fileId,
+        $classStartLine,
+        FileTypeResolver $fileTypeResolver
+    ) {
+        $accessModifierMap = $this->getAccessModifierMap();
+
+        foreach ($magicMethods as $methodName => $methodData) {
             // Use the same line as the class definition, it matters for e.g. type resolution.
             $methodData['name'] = $methodName;
-            $methodData['startLine'] = $methodData['endLine'] = $rawData['startLine'];
+            $methodData['startLine'] = $methodData['endLine'] = $classStartLine;
 
             $this->indexMagicMethod(
                 $methodData,
@@ -401,8 +450,6 @@ class FileIndexer
                 $fileTypeResolver
             );
         }
-
-        return $seId;
     }
 
     /**
@@ -462,29 +509,43 @@ class FileIndexer
         $seId = null,
         FileTypeResolver $fileTypeResolver
     ) {
-        $documentation = $this->docblockParser->parse($rawData['docComment'], [
-            DocblockParser::VAR_TYPE,
-            DocblockParser::DEPRECATED,
-            DocblockParser::DESCRIPTION
-        ], $rawData['name']);
+        $docBlock = null;
 
-        $varDocumentation = isset($documentation['var']['$' . $rawData['name']]) ?
-            $documentation['var']['$' . $rawData['name']] :
-            null;
+        if ($rawData['docComment']) {
+            $docBlock = $this->docBlockFactory->create($rawData['docComment']);
+        }
 
-        $shortDescription = $documentation['descriptions']['short'];
+        $relevantVarTag = null;
+
+        if ($docBlock) {
+            /** @var DocBlock\Tags\Var_ $varTag */
+            foreach ($docBlock->getTagsByName('var') as $varTag) {
+                if (empty($varTag->getVariableName()) || $varTag->getVariableName() === $rawData['name']) {
+                    $relevantVarTag = $varTag;
+                    break;
+                }
+            }
+        }
+
+        $shortDescription = null;
+
+        if ($docBlock) {
+            $shortDescription = $docBlock->getSummary();
+        }
 
         $types = [];
 
-        if ($varDocumentation) {
+        if ($relevantVarTag) {
             // You can place documentation after the @var tag as well as at the start of the docblock. Fall back
             // from the latter to the former.
-            if (!empty($varDocumentation['description'])) {
-                $shortDescription = $varDocumentation['description'];
+            $renderedShortDescription = $relevantVarTag->getDescription()->render($this->docBlockDescriptionFormatter);
+
+            if (!empty($renderedShortDescription)) {
+                $shortDescription = $renderedShortDescription;
             }
 
             $types = $this->getTypeDataForTypeSpecification(
-                $varDocumentation['type'],
+                $relevantVarTag->getType(),
                 $rawData['startLine'],
                 $fileTypeResolver
             );
@@ -503,6 +564,13 @@ class FileIndexer
             }
         }
 
+        $typeDescription = null;
+
+        if ($relevantVarTag) {
+            $typeDescription = $relevantVarTag->getDescription()->render($this->docBlockDescriptionFormatter);
+            $typeDescription = $typeDescription ?: null;
+        }
+
         $constantId = $this->storage->insert(IndexStorageItemEnum::CONSTANTS, [
             'name'                  => $rawData['name'],
             'fqcn'                  => isset($rawData['fqcn']) ? $rawData['fqcn'] : null,
@@ -511,11 +579,11 @@ class FileIndexer
             'end_line'              => $rawData['endLine'],
             'default_value'         => $rawData['defaultValue'],
             'is_builtin'            => 0,
-            'is_deprecated'         => $documentation['deprecated'] ? 1 : 0,
+            'is_deprecated'         => $docBlock && $docBlock->hasTag('deprecated') ? 1 : 0,
             'has_docblock'          => empty($rawData['docComment']) ? 0 : 1,
             'short_description'     => $shortDescription,
-            'long_description'      => $documentation['descriptions']['long'],
-            'type_description'      => $varDocumentation ? $varDocumentation['description'] : null,
+            'long_description'      => $docBlock ? $docBlock->getDescription()->render($this->docBlockDescriptionFormatter) : null,
+            'type_description'      => $typeDescription,
             'types_serialized'      => serialize($types),
             'structure_id'          => $seId
         ]);
@@ -539,29 +607,43 @@ class FileIndexer
         $amId,
         FileTypeResolver $fileTypeResolver
     ) {
-        $documentation = $this->docblockParser->parse($rawData['docComment'], [
-            DocblockParser::VAR_TYPE,
-            DocblockParser::DEPRECATED,
-            DocblockParser::DESCRIPTION
-        ], $rawData['name']);
+        $docBlock = null;
 
-        $varDocumentation = isset($documentation['var']['$' . $rawData['name']]) ?
-            $documentation['var']['$' . $rawData['name']] :
-            null;
+        if ($rawData['docComment']) {
+            $docBlock = $this->docBlockFactory->create($rawData['docComment']);
+        }
 
-        $shortDescription = $documentation['descriptions']['short'];
+        $relevantVarTag = null;
+
+        if ($docBlock) {
+            /** @var DocBlock\Tags\Var_ $varTag */
+            foreach ($docBlock->getTagsByName('var') as $varTag) {
+                if (empty($varTag->getVariableName()) || $varTag->getVariableName() === $rawData['name']) {
+                    $relevantVarTag = $varTag;
+                    break;
+                }
+            }
+        }
+
+        $shortDescription = null;
+
+        if ($docBlock) {
+            $shortDescription = $docBlock->getSummary();
+        }
 
         $types = [];
 
-        if ($varDocumentation) {
+        if ($relevantVarTag) {
             // You can place documentation after the @var tag as well as at the start of the docblock. Fall back
             // from the latter to the former.
-            if (!empty($varDocumentation['description'])) {
-                $shortDescription = $varDocumentation['description'];
+            $renderedShortDescription = $relevantVarTag->getDescription()->render($this->docBlockDescriptionFormatter);
+
+            if (!empty($renderedShortDescription)) {
+                $shortDescription = $renderedShortDescription;
             }
 
             $types = $this->getTypeDataForTypeSpecification(
-                $varDocumentation['type'],
+                $relevantVarTag->getType(),
                 $rawData['startLine'],
                 $fileTypeResolver
             );
@@ -587,19 +669,26 @@ class FileIndexer
             }
         }
 
+        $typeDescription = null;
+
+        if ($relevantVarTag) {
+            $typeDescription = $relevantVarTag->getDescription()->render($this->docBlockDescriptionFormatter);
+            $typeDescription = $typeDescription ?: null;
+        }
+
         $propertyId = $this->storage->insert(IndexStorageItemEnum::PROPERTIES, [
             'name'                  => $rawData['name'],
             'file_id'               => $fileId,
             'start_line'            => $rawData['startLine'],
             'end_line'              => $rawData['endLine'],
             'default_value'         => $rawData['defaultValue'],
-            'is_deprecated'         => $documentation['deprecated'] ? 1 : 0,
+            'is_deprecated'         => $docBlock && $docBlock->hasTag('deprecated') ? 1 : 0,
             'is_magic'              => 0,
             'is_static'             => $rawData['isStatic'] ? 1 : 0,
             'has_docblock'          => empty($rawData['docComment']) ? 0 : 1,
             'short_description'     => $shortDescription,
-            'long_description'      => $documentation['descriptions']['long'],
-            'type_description'      => $varDocumentation ? $varDocumentation['description'] : null,
+            'long_description'      => $docBlock ? $docBlock->getDescription()->render($this->docBlockDescriptionFormatter) : null,
+            'type_description'      => $typeDescription,
             'structure_id'          => $seId,
             'access_modifier_id'    => $amId,
             'types_serialized'      => serialize($types)
@@ -667,21 +756,13 @@ class FileIndexer
         $isMagic = false,
         FileTypeResolver $fileTypeResolver
     ) {
-        // TODO: Remove
-        $documentation = $this->docblockParser->parse($rawData['docComment'], [
-            DocblockParser::THROWS,
-            DocblockParser::PARAM_TYPE,
-            DocblockParser::DEPRECATED,
-            DocblockParser::DESCRIPTION,
-            DocblockParser::RETURN_VALUE
-        ], $rawData['name']);
-
         $docBlock = null;
 
         if ($rawData['docComment']) {
             $docBlock = $this->docBlockFactory->create($rawData['docComment']);
         }
 
+        $returnTag = null;
         $returnTypes = [];
 
         if ($docBlock && $docBlock->hasTag('return')) {
@@ -792,10 +873,10 @@ class FileIndexer
             'is_builtin'              => 0,
             'is_abstract'             => (isset($rawData['isAbstract']) && $rawData['isAbstract']) ? 1 : 0,
             'is_final'                => (isset($rawData['isFinal']) && $rawData['isFinal']) ? 1 : 0,
-            'is_deprecated'           => $documentation['deprecated'] ? 1 : 0,
+            'is_deprecated'           => $docBlock && $docBlock->hasTag('deprecated') ? 1 : 0,
             'short_description'       => $docBlock ? $docBlock->getSummary() : null,
-            'long_description'        => $documentation['descriptions']['long'],
-            'return_description'      => $documentation['return']['description'],
+            'long_description'        => $docBlock ? $docBlock->getDescription()->render($this->docBlockDescriptionFormatter) : null,
+            'return_description'      => $returnTag ? $returnTag->getDescription()->render($this->docBlockDescriptionFormatter) : null,
             'return_type_hint'        => $rawData['returnType'],
             'structure_id'            => $seId,
             'access_modifier_id'      => $amId,

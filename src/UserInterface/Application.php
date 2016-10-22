@@ -31,6 +31,7 @@ use PhpIntegrator\Analysis\Conversion\ClasslikeConstantConverter;
 
 use PhpIntegrator\Analysis\Docblock\StandardTagFactoryFactory;
 use PhpIntegrator\Analysis\Docblock\DummyDocblockFqsenResolver;
+use PhpIntegrator\Analysis\Docblock\TrimmingPasthroughFormatter;
 
 use PhpIntegrator\Analysis\Relations\TraitUsageResolver;
 use PhpIntegrator\Analysis\Relations\InheritanceResolver;
@@ -217,7 +218,8 @@ class Application
             ->register('parser.cachingParserProxy', CachingParserProxy::class)
             ->addArgument(new Reference('parser.phpParser'));
 
-        $container->setAlias('parser', 'parser.cachingParserProxy');
+        $container
+            ->setAlias('parser', 'parser.cachingParserProxy');
 
         $container
             ->register('cache', FilesystemCache::class)
@@ -259,10 +261,14 @@ class Application
             ->setAlias('docblockFactory.fqsenResolver', 'docblockFactory.dummyFqsenResolver');
 
         $container
+            ->setAlias('docblockFactory.formatter', 'docblockFactory.trimmingPasthroughFormatter');
+
+        $container
+            ->register('docblockFactory.TrimmingPasthroughFormatter', TrimmingPasthroughFormatter::class);
+
+        $container
             ->register('docblockFactory.typeResolver', \phpDocumentor\Reflection\TypeResolver::class)
             ->setArguments([new Reference('docblockFactory.fqsenResolver')]);
-
-        // StandardTagFactoryFactory
 
         $container
             ->register('docblockFactory.tagFactory', StandardTagFactory::class)
@@ -418,6 +424,7 @@ class Application
                 new Reference('typeAnalyzer'),
                 new Reference('typeResolver'),
                 new Reference('docblockFactory'),
+                new Reference('docblockFactory.formatter'),
                 new Reference('docblockParser'),
                 new Reference('typeDeducer'),
                 new Reference('parser')
