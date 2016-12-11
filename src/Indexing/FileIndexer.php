@@ -372,6 +372,11 @@ class FileIndexer
             );
         }
 
+        // TODO: Replace the remainder of this class with ReflectionDocBlock, see if we can get all our tests to pass.
+        // TODO: Instead of hacking our way into the TypeResolver (see also DummyDocblockFqsenResolver), we may also
+        // be able to just let ReflectionDocBlock 'resolve' all the types as root and then just strip the leading slash
+        // again everywhere, that beats having to define our own classes, we may even be able to use the built-in
+        // factory again.
         // TODO: Remove.
         $documentation = $this->docblockParser->parse($rawData['docComment'], [
             DocblockParser::METHOD,
